@@ -8,7 +8,10 @@ from utils.preprocessors import DataProcessor
 
 
 # Temporary variables
-RESULTS_PATH = '../data/raw/results_v2.json'
+START_MIN_DT = "2024-08-01"
+START_MAX_DT = "2024-09-31"
+RESULTS_PATH = f'../data/raw/results_min_dt_{START_MIN_DT}.json'
+THRESHOLD = 0.8
 
 
 # Initialize clients
@@ -40,7 +43,7 @@ try:
     # Fetch events
     event_params = {
         "limit": 500,
-        "start_date_min": "2025-01-01",
+        "start_date_min": START_MIN_DT,
         "closed": True,
         "volume_min": 10_000
     }
@@ -99,13 +102,13 @@ try:
                 continue
 
             # Find last timestamp with price > threshold
-            threshold = 0.98  # You can change this value as needed
+            threshold = THRESHOLD  # You can change this value as needed
             last_timestamp = None
             history = price_history.get("history", [])
 
             for entry in reversed(history):
                 try:
-                    if float(entry["p"]) > threshold:
+                    if float(entry["p"]) < threshold:
                         last_timestamp = entry["t"]
                         break
                 except (KeyError, ValueError) as e:
