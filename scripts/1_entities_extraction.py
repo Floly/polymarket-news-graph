@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 # Configuration
-NAME = "min_dt_2024-08-01"
+NAME = "min_dt_2024-10-01"
 RAW_DATA_PATH = f"../data/raw/results_{NAME}.json"
 INTERIM_DATA_PATH = f"../data/interim/entities_{NAME}.json"
 
@@ -48,6 +48,9 @@ except Exception as e:
 # Dictionary to hold final results
 event_entities = {}
 
+# Load SpaCy for stopword detection
+nlp = spacy.load("en_core_web_sm")
+
 # Process each event
 for event_data in tqdm(events):
     try:
@@ -65,22 +68,13 @@ for event_data in tqdm(events):
             logger.warning(f"Invalid description for event ID {event_id}: {type(event_description)}")
             event_description = ""
 
-        # Extract entities using spaCy
-        try:
-            spacy_doc = spacy_nlp(event_description)
-            spacy_entities = list({
-                ent.text.lower() for ent in spacy_doc.ents
-                if ent.label_ not in {"DATE", "TIME"}
-            })
-        except Exception as e:
-            logger.error(f"spaCy error for event {event_id}: {e}")
-            spacy_entities = []
-
         # Extract entities using BERT NER
         try:
             bert_entities = list({
-                ent["word"].lower() for ent in bert_ner_pipeline(event_description)
-            }) if event_description else []
+                ent["word"].lower() 
+                for ent in bert_ner_pipeline(event_description)
+                if not nlp(ent["word"].lower())[0].is_stop
+                }) if event_description else []
         except Exception as e:
             logger.error(f"BERT NER error for event {event_id}: {e}")
             bert_entities = []
@@ -93,7 +87,6 @@ for event_data in tqdm(events):
         # Prepare event entity dictionary
         event_entities_dict = {
             "event_title": event_title,
-            "event_ents": spacy_entities,
             "event_ents_bert": bert_entities,
             "tag_labels": tag_labels,
             "tag_slugs": tag_slugs,
