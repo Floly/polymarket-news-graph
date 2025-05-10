@@ -3,3 +3,4 @@ notebooks
 keys
 data
 *.log
+.DS_Store

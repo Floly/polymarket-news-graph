@@ -1,5 +1,20 @@
 from datetime import datetime
 from typing import Optional
+from datetime import datetime
+
+
+
+def get_last_date(markets):
+    """
+    Returns oldest last timestamp from list of markets markets
+    """
+    min_tmstmp = datetime.now().timestamp()
+    for m in markets:
+        if m['last_timestamp'] is not None:
+            if m['last_timestamp'] < min_tmstmp:
+                min_tmstmp = m['last_timestamp']
+    
+    return min_tmstmp
 
 class DateConverter:
     @staticmethod

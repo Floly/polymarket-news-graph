@@ -5,6 +5,7 @@ import random
 import asyncio
 import json
 import sys
+import os
 
 # --- Configure logging ---
 logging.basicConfig(
@@ -23,8 +24,13 @@ sys.path.insert(0, '../')
 from utils.parsers import fetch_google_news_rss, get_real_url_async
 from utils.base import get_last_date
 
-NAME = 'min_dt_2025-01-01'
+NAME = 'min_dt_2025-03-01'
 
+def get_extracted_events(path='../data/interim/articles/'):
+    urls = os.listdir(path)
+    result = [u.split('_')[0] for u in urls]
+    return result
+    
 def fetch_news_for_queries(queries, cutoff_date):
     """Fetch news articles for a list of queries and a cutoff date."""
     logger.info(f"Fetching news for {len(queries)} queries (cutoff: {cutoff_date})")
@@ -38,8 +44,15 @@ def fetch_news_for_queries(queries, cutoff_date):
             logger.error(f"Error fetching news for query '{query}': {e}")
     return news_data
 
-async def url_extractor(event_id, articles):
-    """Extract real URLs from articles and save to JSON."""
+async def url_extractor(event_id, articles, num_parallel_tasks=10):
+    """
+    Extract real URLs from articles in parallel using a specified number of tasks.
+    
+    Args:
+        event_id (str): ID of the event.
+        articles (list): List of article dicts.
+        num_parallel_tasks (int): Number of parallel coroutines to use.
+    """
     logger.info(f"Processing {len(articles)} articles for event ID: {event_id}")
     
     # Sample 100 articles if total exceeds 100
@@ -48,12 +61,21 @@ async def url_extractor(event_id, articles):
         articles = random.sample(articles, 100)
         logger.info(f"Sampled 100 articles for event ID: {event_id}")
 
-    threshold = len(articles) // 2
-    task1 = get_real_url_async(articles[:threshold])
-    task2 = get_real_url_async(articles[threshold:])
+    # Create chunks based on number of parallel tasks
+    chunk_size = max(1, len(articles) // num_parallel_tasks)
+    chunks = [
+        articles[i:i + chunk_size]
+        for i in range(0, len(articles), chunk_size)
+    ]
 
-    results = await asyncio.gather(task1, task2)
-    combined_articles = results[0] + results[1]
+    logger.info(f"Created {len(chunks)} chunks for parallel processing")
+
+    # Run all chunks in parallel using get_real_url_async
+    tasks = [get_real_url_async(chunk) for chunk in chunks]
+    results = await asyncio.gather(*tasks)
+    combined_articles = []
+    for result in results:
+        combined_articles.extend(result)
 
     output_path = f'../data/interim/articles/{event_id}_articles.json'
     try:
@@ -86,31 +108,36 @@ async def main():
 
     for event in raw_events:
         event_id = event['event']['id']
-        logger.warning(f"Starting processing for event ID: {event_id}")
-        markets = event['markets']
+        extracted_events =get_extracted_events()
+        if event_id in extracted_events:
+            continue
+        else:
+            logger.warning(f"Starting processing for event ID: {event_id}")
+            markets = event['markets']
 
-        timestamp = get_last_date(markets)
-        last_date_str = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d')
+            timestamp = get_last_date(markets)
+            last_date_str = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d')
 
-        tags = event_ents[event_id]['tag_labels']
-        tag_combinations = list(itertools.combinations(tags, len(tags)))
-        tag_queries = [' '.join(combo) for combo in tag_combinations]
+            tags = event_ents[event_id]['tag_labels']
+            tag_combinations = list(itertools.combinations(tags, len(tags)))
+            tag_queries = [' '.join(combo) for combo in tag_combinations]
 
-        # Collect all queries from different sources
-        queries = []
-        queries.extend(event_ents[event_id]['event_ents_bert'])
-        queries.extend(tag_queries)
-        queries.extend([m['market'].get('question') for m in markets])
+            # Collect all queries from different sources
+            queries = []
+            queries.extend(event_ents[event_id]['event_ents_bert'])
+            queries.extend(tag_queries)
+            queries.extend([m['market'].get('question') for m in markets])
 
-        news_data = fetch_news_for_queries(queries, last_date_str)
+            news_data = fetch_news_for_queries(queries, last_date_str)
 
-        articles = [
-            {**article, 'query': source}
-            for source, articles_list in news_data.items()
-            for article in articles_list
-        ]
+            articles = [
+                {**article, 'query': source}
+                for source, articles_list in news_data.items()
+                for article in articles_list
+            ]
 
-        await url_extractor(event_id, articles)
+            await url_extractor(event_id, articles, num_parallel_tasks=20)
+
 
 if __name__ == '__main__':
     asyncio.run(main())
