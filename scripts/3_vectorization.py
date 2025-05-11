@@ -2,6 +2,7 @@ import logging
 from tqdm import tqdm
 import json
 import re
+import gc
 import unicodedata
 import requests
 from bs4 import BeautifulSoup
@@ -15,17 +16,24 @@ logging.basicConfig(
     filename='../logs/3_vectorization.log'
 )
 handler = logging.StreamHandler()
-handler.setLevel(logging.INFO)
+handler.setLevel(logging.WARNING)
 logging.getLogger().addHandler(handler)
 logger = logging.getLogger(__name__)
 
 # Initialize model
 model = SentenceTransformer('all-MiniLM-L6-v2')
-
+ 
 # Constants
 ARTICLES_PATH = '../data/interim/articles/'
-NAME = 'results_min_dt_2025-03-01'
+NAME = 'results_min_dt_2024-10-01'
 EVENTS_FILE_PATH = f'../data/raw/{NAME}.json'
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0",
+    "Accept-Language": "en-US,en;q=0.5",
+    "Referer": "https://www.google.com/ ",
+}
+
 
 
 def load_events(file_path):
@@ -109,13 +117,17 @@ def process_event_articles(event, articles_path):
             article_id = url_info.get('id', 'Unknown ID')
 
             logger.info(f"Fetching URL: {url}")
-            response = requests.get(url)
+            response = requests.get(url, headers=HEADERS)
             if response.status_code != 200:
                 logger.warning(f"Failed to fetch {url} (Status {response.status_code})")
                 continue
 
             soup = BeautifulSoup(response.content, 'html.parser')
             sentences = extract_sentences(soup.text)
+            
+            del soup, response
+            gc.collect()
+
             if not sentences:
                 logger.warning(f"No valid sentences extracted from {url}")
                 continue
@@ -126,6 +138,9 @@ def process_event_articles(event, articles_path):
 
             with open(output_path, 'wb') as out_file:
                 np.savez_compressed(out_file, embeddings)
+            
+            del sentences, embeddings
+            gc.collect()
 
     except Exception as e:
         logger.error(f"Error processing event articles for ID {event_id}: {e}", exc_info=True)
@@ -138,9 +153,16 @@ def main():
         logger.error("No events loaded. Exiting.")
         return
 
-    for event in tqdm(events[:3], desc="Processing Events"):
+    for idx, event in enumerate(tqdm(events, desc="Processing Events")):
         process_event_articles(event, ARTICLES_PATH)
 
+        # Periodically trigger GC every N events
+        if idx % 10 == 0:
+            gc.collect()
 
+    # Final cleanup
+    del events
+    gc.collect()
+    
 if __name__ == '__main__':
     main()
