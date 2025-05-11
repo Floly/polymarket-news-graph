@@ -26,7 +26,7 @@ model = SentenceTransformer('all-MiniLM-L6-v2')
  
 # Constants
 ARTICLES_PATH = '../data/interim/articles/'
-NAME = 'results_min_dt_2025-03-01'
+NAME = 'results_min_dt_2024-08-01'
 EVENTS_FILE_PATH = f'../data/raw/{NAME}.json'
 OUTPUT_PATH = '../data/interim/sentence_embeddings/'
 

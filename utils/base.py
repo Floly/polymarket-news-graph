@@ -1,8 +1,16 @@
 from datetime import datetime
 from typing import Optional
 from datetime import datetime
+import json
 
 
+def load_events(file_path):
+    """Load event data from JSON file."""
+    try:
+        with open(file_path, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        return []
 
 def get_last_date(markets):
     """
