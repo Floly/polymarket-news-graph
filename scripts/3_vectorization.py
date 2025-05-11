@@ -2,6 +2,7 @@ import logging
 from tqdm import tqdm
 import json
 import re
+import os
 import gc
 import unicodedata
 import requests
@@ -16,7 +17,7 @@ logging.basicConfig(
     filename='../logs/3_vectorization.log'
 )
 handler = logging.StreamHandler()
-handler.setLevel(logging.WARNING)
+handler.setLevel(logging.INFO)
 logging.getLogger().addHandler(handler)
 logger = logging.getLogger(__name__)
 
@@ -25,8 +26,9 @@ model = SentenceTransformer('all-MiniLM-L6-v2')
  
 # Constants
 ARTICLES_PATH = '../data/interim/articles/'
-NAME = 'results_min_dt_2024-10-01'
+NAME = 'results_min_dt_2025-03-01'
 EVENTS_FILE_PATH = f'../data/raw/{NAME}.json'
+OUTPUT_PATH = '../data/interim/sentence_embeddings/'
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0",
@@ -102,8 +104,12 @@ def extract_sentences(text):
 
 def process_event_articles(event, articles_path):
     """Process all articles for a single event."""
+    
     try:
         event_id = event['event']['id']
+        
+
+
         logger.info(f"Processing event ID: {event_id}")
 
         file_path = f'{articles_path}{event_id}_articles.json'
@@ -133,7 +139,7 @@ def process_event_articles(event, articles_path):
                 continue
 
             embeddings = model.encode(sentences)
-            output_path = f'../data/interim/sentence_embeddings/event_{event_id}_{article_id}.npz'
+            output_path = f'{OUTPUT_PATH}event_{event_id}_{article_id}.npz'
             logger.info(f"Saving embeddings to {output_path}")
 
             with open(output_path, 'wb') as out_file:
@@ -148,12 +154,20 @@ def process_event_articles(event, articles_path):
 
 def main():
     events = load_events(EVENTS_FILE_PATH)
-
+    existing_embeddings = set(
+        [x.split('_')[1] for x in os.listdir(OUTPUT_PATH)]
+    )
     if not events:
         logger.error("No events loaded. Exiting.")
         return
 
     for idx, event in enumerate(tqdm(events, desc="Processing Events")):
+        event_id = event['event']['id']
+        
+        if event_id in existing_embeddings:
+            logging.info(f'event {event_id} articles already embedded')
+            continue
+        
         process_event_articles(event, ARTICLES_PATH)
 
         # Periodically trigger GC every N events
