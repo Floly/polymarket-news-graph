@@ -7,6 +7,7 @@ import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
+from datetime import datetime
 from sentence_transformers import SentenceTransformer
 from torch_geometric.loader import DataLoader
 from torch_geometric.nn import global_mean_pool
@@ -200,6 +201,9 @@ def main():
             
             val_accuracy = correct / len(test_data_loader.dataset)
             print(f"Val Accuracy: {val_accuracy:.4f}, Val Loss: {total_val_loss:.4f}")
-            
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    model_path = f'{ROOT}models/gcn_classifier_{timestamp}.pth'
+    torch.save(model.state_dict(), model_path)
 if __name__ == 'main':
-    main
+    main()
