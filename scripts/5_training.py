@@ -10,18 +10,21 @@ from tqdm import tqdm
 from datetime import datetime
 from sentence_transformers import SentenceTransformer
 from torch_geometric.loader import DataLoader
-from torch_geometric.nn import global_mean_pool
 from torch_geometric.data import Data
 from torch_geometric.utils import dropout
 from torch_geometric.utils.convert import from_networkx
 import sys
 
 # Project root and path setup
+PREPROCESS = False
 ROOT = '/Users/ivanesipov/Desktop/Учеба/МОВС_ВШЭ/Диплом/pm_news_graph/'
 sys.path.insert(0, ROOT)
 
-from utils.models.gcn_v0 import GCNGraphClassifier
+# from utils.models.gcn_v0 import GCNGraphClassifier
+from utils.models.gcn_v1 import GCNGraphClassifier_v1
+from utils.models.baseline import BaselineClassifier
 
+CLF = GCNGraphClassifier_v1
 # Data paths
 GRAPHS_PATH = f'{ROOT}data/processed/graphs/'
 EVENTS_PATH = f'{ROOT}data/raw/'
@@ -41,7 +44,7 @@ def get_similarity_vector(article_emb, question_emb, model):
     article_similarity = torch.cat([
         torch.quantile(similarities, torch.tensor([i/10.0 for i in range(10)]), 
                       dim=0, keepdim=False).flatten(),
-        torch.tensor([similarities.mean(), max(0, similarities[idx].std())])
+        torch.tensor([similarities.mean(), max(0, similarities[idx].std()), len(similarities > 0.5)]),
     ])
     
     return article_similarity
@@ -100,38 +103,40 @@ def add_key(graph_list, key):
     ]
     return graph_list_new
 
-# # Initialize sentence transformer
-# sentence_transformer = SentenceTransformer("all-MiniLM-L6-v2")
-
-# # Process all events
-# all_events = [x for x in os.listdir(f'{ROOT}data/raw') if x.startswith('results')]
-# for name in all_events:
-#     min_dt = name.split('_')[-1].split('.')[0]
-#     events = json.load(open(f'{ROOT}data/raw/{name}'))
-#     graphs = []
-    
-#     for ev in tqdm(events):
-#         id = ev['event']['id']
-#         events_w_graph = [x.split('.')[0] for x in os.listdir(GRAPHS_PATH)]
-        
-#         if id in events_w_graph:
-#             G = nx.read_graphml(f'{GRAPHS_PATH}{id}.graphml')
-#             for market in ev['event']['markets']:
-#                 try:
-#                     graphs.append(
-#                         generate_graph(market, G=G, model=sentence_transformer)
-#                     )
-#                 except Exception as e:
-#                     print(f"Error processing market: {e}")
-#         else:
-#             continue
-    
-#     graph_list = add_key(graphs, 'same_date')
-#     with open(f'{ROOT}data/processed/graph_data_3/graph_list_{min_dt}.pickle', 'wb') as f:
-#         joblib.dump(graph_list, f)
 
 
 def main():
+    if PREPROCESS == True:
+        # Initialize sentence transformer
+        sentence_transformer = SentenceTransformer("all-MiniLM-L6-v2")
+
+        # Process all events
+        all_events = [x for x in os.listdir(f'{ROOT}data/raw') if x.startswith('results')]
+        for name in all_events:
+            min_dt = name.split('_')[-1].split('.')[0]
+            events = json.load(open(f'{ROOT}data/raw/{name}'))
+            graphs = []
+            
+            for ev in tqdm(events):
+                id = ev['event']['id']
+                events_w_graph = [x.split('.')[0] for x in os.listdir(GRAPHS_PATH)]
+                
+                if id in events_w_graph:
+                    G = nx.read_graphml(f'{GRAPHS_PATH}{id}.graphml')
+                    for market in ev['event']['markets']:
+                        try:
+                            graphs.append(
+                                generate_graph(market, G=G, model=sentence_transformer)
+                            )
+                        except Exception as e:
+                            print(f"Error processing market: {e}")
+                else:
+                    continue
+            
+            graph_list = add_key(graphs, 'same_date')
+            with open(f'{ROOT}data/processed/graph_data_2/graph_list_{min_dt}.pickle', 'wb') as f:
+                joblib.dump(graph_list, f)
+
     # Load all graphs
     graph_list = []
     for gl in os.listdir(f'{ROOT}data/processed/graph_data_3/'):
@@ -159,14 +164,18 @@ def main():
 
     # Training setup
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = GCNGraphClassifier(input_dim=12, hidden_dim=128).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    model = CLF(input_dim=12, hidden_dim=128).to(device)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=0.001)
 
     # Training loop
     k = 1
     loss_history = []
 
-    for i, epoch in enumerate(range(40)):
+    targets = np.array([int(g.y) for g in graph_list])
+    class_0_weight, class_1_weight = (1 - targets.mean()).astype(np.float32), targets.mean().astype(np.float32)
+    class_weight = torch.tensor([class_0_weight, class_1_weight])
+    
+    for i, epoch in enumerate(range(10)):
         total_loss = 0
         model.train()
         
@@ -174,7 +183,7 @@ def main():
             data = data.to(device)
             optimizer.zero_grad()
             out = model(data)
-            loss = F.nll_loss(out, data.y)
+            loss = F.nll_loss(out, data.y, weight=class_weight)
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
@@ -202,8 +211,9 @@ def main():
             val_accuracy = correct / len(test_data_loader.dataset)
             print(f"Val Accuracy: {val_accuracy:.4f}, Val Loss: {total_val_loss:.4f}")
 
+    class_name = model.__class__.__name__
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    model_path = f'{ROOT}models/gcn_classifier_{timestamp}.pth'
+    model_path = f'{ROOT}models/{class_name}_{timestamp}.pth'
     torch.save(model.state_dict(), model_path)
     
 if __name__ == '__main__':
