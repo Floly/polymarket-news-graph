@@ -100,35 +100,35 @@ def add_key(graph_list, key):
     ]
     return graph_list_new
 
-# Initialize sentence transformer
-sentence_transformer = SentenceTransformer("all-MiniLM-L6-v2")
+# # Initialize sentence transformer
+# sentence_transformer = SentenceTransformer("all-MiniLM-L6-v2")
 
-# Process all events
-all_events = [x for x in os.listdir(f'{ROOT}data/raw') if x.startswith('results')]
-for name in all_events:
-    min_dt = name.split('_')[-1].split('.')[0]
-    events = json.load(open(f'{ROOT}data/raw/{name}'))
-    graphs = []
+# # Process all events
+# all_events = [x for x in os.listdir(f'{ROOT}data/raw') if x.startswith('results')]
+# for name in all_events:
+#     min_dt = name.split('_')[-1].split('.')[0]
+#     events = json.load(open(f'{ROOT}data/raw/{name}'))
+#     graphs = []
     
-    for ev in tqdm(events):
-        id = ev['event']['id']
-        events_w_graph = [x.split('.')[0] for x in os.listdir(GRAPHS_PATH)]
+#     for ev in tqdm(events):
+#         id = ev['event']['id']
+#         events_w_graph = [x.split('.')[0] for x in os.listdir(GRAPHS_PATH)]
         
-        if id in events_w_graph:
-            G = nx.read_graphml(f'{GRAPHS_PATH}{id}.graphml')
-            for market in ev['event']['markets']:
-                try:
-                    graphs.append(
-                        generate_graph(market, G=G, model=sentence_transformer)
-                    )
-                except Exception as e:
-                    print(f"Error processing market: {e}")
-        else:
-            continue
+#         if id in events_w_graph:
+#             G = nx.read_graphml(f'{GRAPHS_PATH}{id}.graphml')
+#             for market in ev['event']['markets']:
+#                 try:
+#                     graphs.append(
+#                         generate_graph(market, G=G, model=sentence_transformer)
+#                     )
+#                 except Exception as e:
+#                     print(f"Error processing market: {e}")
+#         else:
+#             continue
     
-    graph_list = add_key(graphs, 'same_date')
-    with open(f'{ROOT}data/processed/graph_data_3/graph_list_{min_dt}.pickle', 'wb') as f:
-        joblib.dump(graph_list, f)
+#     graph_list = add_key(graphs, 'same_date')
+#     with open(f'{ROOT}data/processed/graph_data_3/graph_list_{min_dt}.pickle', 'wb') as f:
+#         joblib.dump(graph_list, f)
 
 
 def main():
@@ -205,5 +205,6 @@ def main():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     model_path = f'{ROOT}models/gcn_classifier_{timestamp}.pth'
     torch.save(model.state_dict(), model_path)
-if __name__ == 'main':
+    
+if __name__ == '__main__':
     main()
