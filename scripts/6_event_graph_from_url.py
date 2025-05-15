@@ -12,6 +12,7 @@ START_MIN_DT = "2024-08-01"
 START_MAX_DT = "2024-09-31"
 RESULTS_PATH = f'../data/raw/results_min_dt_{START_MIN_DT}.json'
 THRESHOLD = 0.8
+SLUG = "fed-decision-in-june"
 
 
 # Initialize clients
@@ -42,10 +43,7 @@ results: List[Dict] = []
 try:
     # Fetch events
     event_params = {
-        "limit": 500,
-        "start_date_min": START_MIN_DT,
-        "closed": True,
-        "volume_min": 10_000,
+        "slug": SLUG
     }
     events = event_api.get_events(event_params)
 
@@ -76,26 +74,26 @@ try:
                 logging.error(f"  ❌ Error getting max price index: {e}")
                 continue
 
-            # Convert timestamps
-            try:
-                created_at_ts = processor.date_converter.iso_or_yy_mm_dd_to_unix(market["createdAt"])
-                closed_time_ts = processor.date_converter.iso_or_yy_mm_dd_to_unix(market["closedTime"])
-            except Exception as e:
-                logging.error(f"  ❌ Error converting timestamps: {e}")
-                continue
+            # # Convert timestamps
+            # try:
+            #     created_at_ts = processor.date_converter.iso_or_yy_mm_dd_to_unix(market["createdAt"])
+            #     closed_time_ts = processor.date_converter.iso_or_yy_mm_dd_to_unix(market["closedTime"])
+            # except Exception as e:
+            #     logging.error(f"  ❌ Error converting timestamps: {e}")
+            #     continue
 
-            # Check time difference
-            TWO_DAYS_IN_SECONDS = 2 * 24 * 60 * 60
-            duration_seconds = closed_time_ts - created_at_ts
-            is_longer_than_two_days = duration_seconds > TWO_DAYS_IN_SECONDS
+            # # Check time difference
+            # TWO_DAYS_IN_SECONDS = 2 * 24 * 60 * 60
+            # duration_seconds = closed_time_ts - created_at_ts
+            # is_longer_than_two_days = duration_seconds > TWO_DAYS_IN_SECONDS
 
             # Fetch price history
             try:
                 clob_token_id = processor.extract_clob_token_id(market["clobTokenIds"])
                 price_history = price_api.fetch_prices_history(
                     clob_token_id,
-                    created_at_ts,
-                    closed_time_ts
+                    # created_at_ts,
+                    # closed_time_ts
                 )
             except Exception as e:
                 logging.error(f"  ❌ Error fetching price history: {e}")
@@ -118,10 +116,10 @@ try:
             markets_list.append({
                 "market": market,
                 "max_price_index": max_price_idx,
-                "created_at_ts": created_at_ts,
-                "closed_time_ts": closed_time_ts,
-                "duration_seconds": duration_seconds,
-                "is_longer_than_two_days": is_longer_than_two_days,
+                # "created_at_ts": created_at_ts,
+                # "closed_time_ts": closed_time_ts,
+                # "duration_seconds": duration_seconds,
+                # "is_longer_than_two_days": is_longer_than_two_days,
                 "last_timestamp": last_timestamp,
                 "price_threshold": threshold,
             })

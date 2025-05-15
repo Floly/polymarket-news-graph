@@ -63,18 +63,18 @@ def clear_attrs(graph):
     
     return graph
 
-def generate_graph(market, G, model):
+def generate_graph(market, G, model, event_id):
     """Generate graph with node embeddings and labels."""
     # Label
     pos = np.argmax(eval(market['outcomePrices']))
     y = np.where(eval(market['outcomes'])[pos] == 'No', 0, 1)
     
     # Question embedding
-    market_question = market['question']
+    market_question = market['description']
     question_emb = model.encode(market_question)
     
     for node_id in G.nodes:
-        article_emb = np.load(f'{EMBEDDINGS_PATH}event_{id}_{node_id}.npz')
+        article_emb = np.load(f'{EMBEDDINGS_PATH}event_{event_id}_{node_id}.npz')
         node_vector = get_similarity_vector(article_emb, question_emb, model=model)
         G.nodes[node_id]['embedding'] = node_vector
     
@@ -126,7 +126,7 @@ def main():
                     for market in ev['event']['markets']:
                         try:
                             graphs.append(
-                                generate_graph(market, G=G, model=sentence_transformer)
+                                generate_graph(market, G=G, model=sentence_transformer, event_id=id)
                             )
                         except Exception as e:
                             print(f"Error processing market: {e}")
@@ -161,7 +161,7 @@ def main():
     )
 
     print(f"Train samples: {len(train_indices)}, Test samples: {len(test_indices)}")
-
+    # test_data_loader.dataset[0].x.size()
     # Training setup
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = CLF(input_dim=12, hidden_dim=128).to(device)
@@ -175,7 +175,7 @@ def main():
     class_0_weight, class_1_weight = (1 - targets.mean()).astype(np.float32), targets.mean().astype(np.float32)
     class_weight = torch.tensor([class_0_weight, class_1_weight])
     
-    for i, epoch in enumerate(range(10)):
+    for i, epoch in enumerate(range(40)):
         total_loss = 0
         model.train()
         
