@@ -34,10 +34,9 @@ class GCNGraphClassifier(nn.Module):
                               torch.tensor(1.0, device=weights.device),
                               torch.tensor(0.5, device=weights.device))
 
-        # # --- Layer 1: GraphSAGE ---
-        # x = self.sage(x, edge_index, edge_weight=weights)
-        # x = self.batch_norm1(x)
-        # x = self.relu(x)
+        # --- Layer 1: GraphSAGE ---
+        x = self.sage(x, edge_index, edge_weight=weights)
+        x = self.relu(x)
 
         # --- Layer 2: GCN ---
         x = self.conv1(x, edge_index, edge_weight=weights)

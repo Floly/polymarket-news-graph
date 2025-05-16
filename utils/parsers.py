@@ -1,4 +1,5 @@
 import re
+import os
 import uuid
 import requests
 from typing import Dict
@@ -211,3 +212,62 @@ async def get_real_url_async(articles):
         print("✅ Real Article URL:", real_url)
             
     return articles
+
+def get_extracted_events(path='../data/interim/articles/'):
+    urls = os.listdir(path)
+    result = [u.split('_')[0] for u in urls]
+    return result
+    
+def fetch_news_for_queries(queries, cutoff_date):
+    """Fetch news articles for a list of queries and a cutoff date."""
+    logger.info(f"Fetching news for {len(queries)} queries (cutoff: {cutoff_date})")
+    news_data = {}
+    for query in queries:
+        try:
+            res = fetch_google_news_rss(query, cutoff_date=cutoff_date)
+            if res:
+                news_data.update(res)
+        except Exception as e:
+            logger.error(f"Error fetching news for query '{query}': {e}")
+    return news_data
+
+async def url_extractor(event_id, articles, num_parallel_tasks=10):
+    """
+    Extract real URLs from articles in parallel using a specified number of tasks.
+    
+    Args:
+        event_id (str): ID of the event.
+        articles (list): List of article dicts.
+        num_parallel_tasks (int): Number of parallel coroutines to use.
+    """
+    logger.info(f"Processing {len(articles)} articles for event ID: {event_id}")
+    
+    # Sample 100 articles if total exceeds 100
+    if len(articles) > 100:
+        logger.warning(f"Exceeded 100 articles. Sampling 100 out of {len(articles)}.")
+        articles = random.sample(articles, 100)
+        logger.info(f"Sampled 100 articles for event ID: {event_id}")
+
+    # Create chunks based on number of parallel tasks
+    chunk_size = max(1, len(articles) // num_parallel_tasks)
+    chunks = [
+        articles[i:i + chunk_size]
+        for i in range(0, len(articles), chunk_size)
+    ]
+
+    logger.info(f"Created {len(chunks)} chunks for parallel processing")
+
+    # Run all chunks in parallel using get_real_url_async
+    tasks = [get_real_url_async(chunk) for chunk in chunks]
+    results = await asyncio.gather(*tasks)
+    combined_articles = []
+    for result in results:
+        combined_articles.extend(result)
+
+    output_path = f'../data/interim/articles/{event_id}_articles.json'
+    try:
+        with open(output_path, 'w') as f:
+            json.dump(combined_articles, f)
+        logger.info(f"Saved processed articles to {output_path}")
+    except Exception as e:
+        logger.error(f"Failed to save articles for event ID {event_id}: {e}")

@@ -13,6 +13,7 @@ from torch_geometric.loader import DataLoader
 from torch_geometric.data import Data
 from torch_geometric.utils import dropout
 from torch_geometric.utils.convert import from_networkx
+from sklearn.utils.class_weight import compute_class_weight
 import sys
 
 # Project root and path setup
@@ -161,10 +162,10 @@ def main():
     )
 
     print(f"Train samples: {len(train_indices)}, Test samples: {len(test_indices)}")
-    # test_data_loader.dataset[0].x.size()
+    input_dim = test_data_loader.dataset[0].x.size(1)
     # Training setup
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = CLF(input_dim=12, hidden_dim=128).to(device)
+    model = CLF(input_dim=input_dim, hidden_dim=128).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=0.001)
 
     # Training loop
@@ -172,9 +173,24 @@ def main():
     loss_history = []
 
     targets = np.array([int(g.y) for g in graph_list])
-    class_0_weight, class_1_weight = (1 - targets.mean()).astype(np.float32), targets.mean().astype(np.float32)
-    class_weight = torch.tensor([class_0_weight, class_1_weight])
+    # class_0_weight, class_1_weight = targets.mean().astype(np.float32),  (1 - targets.mean()).astype(np.float32)
+    # class_weight = torch.tensor([class_0_weight, class_1_weight])
+
+    # Get unique class values and compute class frequencies
+    classes = np.unique(targets)
+
+    # Compute class weights using 'balanced' mode (inversely proportional to class frequencies)
+    class_weights = compute_class_weight('balanced', classes=classes, y=targets)
+
+    # Convert to PyTorch tensor
+    class_weights_tensor = torch.tensor(class_weights, dtype=torch.float)
     
+    # Add early stopping variables
+    patience = 5         # Number of epochs to wait before stopping if no improvement
+    min_val_loss = float('inf')
+    counter = 0
+    best_model = None    # Save best model weights
+
     for i, epoch in enumerate(range(40)):
         total_loss = 0
         model.train()
@@ -183,12 +199,13 @@ def main():
             data = data.to(device)
             optimizer.zero_grad()
             out = model(data)
-            loss = F.nll_loss(out, data.y, weight=class_weight)
+            loss = F.nll_loss(out, data.y, weight=class_weights_tensor)
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
-            loss_history.append(loss.mean())
-        
+            loss_history.append(loss.item())
+
+        # Validation every k epochs
         if i % k == 0:
             print(f"\n==== Epoch {epoch} =====")
             print(f"Train Loss: {total_loss:.4f}")
@@ -209,12 +226,26 @@ def main():
                     correct += pred.eq(data.y).sum().item()
             
             val_accuracy = correct / len(test_data_loader.dataset)
-            print(f"Val Accuracy: {val_accuracy:.4f}, Val Loss: {total_val_loss:.4f}")
+            avg_val_loss = total_val_loss / len(test_data_loader)
+
+            print(f"Val Accuracy: {val_accuracy:.4f}, Val Loss: {avg_val_loss:.4f}")
+
+            # Early stopping logic
+            if avg_val_loss < min_val_loss:
+                min_val_loss = avg_val_loss
+                counter = 0
+                # Save best model
+                best_model = model.state_dict()  # Save current model state
+            else:
+                counter += 1
+                if counter >= patience:
+                    print("\nEarly stopping triggered.")
+                    break
 
     class_name = model.__class__.__name__
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     model_path = f'{ROOT}models/{class_name}_{timestamp}.pth'
-    torch.save(model.state_dict(), model_path)
+    torch.save(best_model, model_path)
     
 if __name__ == '__main__':
     main()
