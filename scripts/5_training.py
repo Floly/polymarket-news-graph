@@ -23,9 +23,10 @@ sys.path.insert(0, ROOT)
 
 # from utils.models.gcn_v0 import GCNGraphClassifier
 from utils.models.gcn_v1 import GCNGraphClassifier_v1
+from utils.models.gcn_v2 import GCNGraphClassifier_v2
 from utils.models.baseline import BaselineClassifier
 
-CLF = GCNGraphClassifier_v1
+CLF = GCNGraphClassifier_v2
 # Data paths
 GRAPHS_PATH = f'{ROOT}data/processed/graphs/'
 EVENTS_PATH = f'{ROOT}data/raw/'
@@ -71,7 +72,7 @@ def generate_graph(market, G, model, event_id):
     y = np.where(eval(market['outcomes'])[pos] == 'No', 0, 1)
     
     # Question embedding
-    market_question = market['description']
+    market_question = market['question']
     question_emb = model.encode(market_question)
     
     for node_id in G.nodes:
@@ -135,25 +136,26 @@ def main():
                     continue
             
             graph_list = add_key(graphs, 'same_date')
-            with open(f'{ROOT}data/processed/graph_data_2/graph_list_{min_dt}.pickle', 'wb') as f:
+            with open(f'{ROOT}data/processed/graph_data_4/graph_list_{min_dt}.pickle', 'wb') as f:
                 joblib.dump(graph_list, f)
 
     # Load all graphs
     graph_list = []
-    for gl in os.listdir(f'{ROOT}data/processed/graph_data_3/'):
-        with open(f'{ROOT}data/processed/graph_data_3/{gl}', 'rb') as f:
+    for gl in os.listdir(f'{ROOT}data/processed/graph_data_4/'):
+        with open(f'{ROOT}data/processed/graph_data_4/{gl}', 'rb') as f:
             graph_list.extend(joblib.load(f))
 
     # Train-test split
     np.random.seed(0)
     N = len(graph_list)
     indices = np.arange(N).tolist()
-    train_indices = np.random.choice(indices, size=int(N * 0.8), replace=False)
+    train_indices = np.random.choice(indices, size=int(N * 0.7), replace=False)
     test_indices = list(set(indices) - set(train_indices))
 
     train_data_loader = DataLoader(
         [graph_list[i] for i in train_indices],
-        batch_size=16
+        batch_size=16,
+        shuffle=True
     )
 
     test_data_loader = DataLoader(
@@ -166,15 +168,14 @@ def main():
     # Training setup
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = CLF(input_dim=input_dim, hidden_dim=128).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=0.001)
+    # optimizer = torch.optim.AdamW(model.parameters(), lr=0.001, weight_decay=0.01)
+    optimizer = torch.optim.AdamW(model.parameters())
 
     # Training loop
     k = 1
     loss_history = []
 
     targets = np.array([int(g.y) for g in graph_list])
-    # class_0_weight, class_1_weight = targets.mean().astype(np.float32),  (1 - targets.mean()).astype(np.float32)
-    # class_weight = torch.tensor([class_0_weight, class_1_weight])
 
     # Get unique class values and compute class frequencies
     classes = np.unique(targets)
@@ -184,9 +185,9 @@ def main():
 
     # Convert to PyTorch tensor
     class_weights_tensor = torch.tensor(class_weights, dtype=torch.float)
-    
+
     # Add early stopping variables
-    patience = 5         # Number of epochs to wait before stopping if no improvement
+    patience = 15         # Number of epochs to wait before stopping if no improvement
     min_val_loss = float('inf')
     counter = 0
     best_model = None    # Save best model weights
@@ -215,18 +216,48 @@ def main():
             total_val_loss = 0
             
             with torch.no_grad():
+                all_preds = []
+                all_targets = []
+                all_logits = []
                 for data in test_data_loader:
                     data = data.to(device)
                     val_out = model(data)
-                    
-                    val_loss = F.nll_loss(val_out, data.y)
+
+                    val_loss = F.nll_loss(val_out, data.y, weight=class_weights_tensor)
                     total_val_loss += val_loss.item()
-                    
-                    pred = val_out.max(1)[1]
+
+                    pred = val_out.max(1)[1].to(torch.float32)
                     correct += pred.eq(data.y).sum().item()
+
+                    all_logits.append(val_out[:,1])
+                    all_preds.append(pred)
+                    all_targets.append(data.y)
             
+            all_preds = torch.cat(all_preds)
+            all_targets = torch.cat(all_targets)
+            all_logits = torch.cat(all_logits)
+
             val_accuracy = correct / len(test_data_loader.dataset)
             avg_val_loss = total_val_loss / len(test_data_loader)
+            
+            from sklearn.metrics import classification_report, confusion_matrix, precision_score, recall_score, f1_score, roc_auc_score
+
+            # Advanced metrics
+            class_report = classification_report(all_targets, all_preds, digits=4)
+            conf_matrix = confusion_matrix(all_targets, all_preds)
+            
+            precision = precision_score(all_targets, all_preds, average='binary', zero_division=0)
+            recall = recall_score(all_targets, all_preds, average='binary', zero_division=0)
+            f1 = f1_score(all_targets, all_preds, average='binary', zero_division=0)
+            roc_auc = roc_auc_score(all_targets, all_logits)
+
+            print(f"Avg Prediction: {torch.mean(all_preds):.4f}")
+            # print(f"Val Accuracy: {val_accuracy:.4f}, Val Loss: {avg_val_loss:.4f}")
+            print(f"Val Precision: {precision:.4f}, Recall: {recall:.4f}, F1 Score: {f1:.4f}, ROC AUC: {roc_auc:.4f}")
+            print("\nClassification Report:")
+            print(class_report)
+            print("\nConfusion Matrix:")
+            print(conf_matrix)
 
             print(f"Val Accuracy: {val_accuracy:.4f}, Val Loss: {avg_val_loss:.4f}")
 

@@ -20,5 +20,4 @@ class BaselineClassifier(nn.Module):
         x = self.lin2(x)
         
         x = global_mean_pool(x, batch)
-
-        return F.log_softmax(x, dim=1)
+        return F.log_softmax(x)
