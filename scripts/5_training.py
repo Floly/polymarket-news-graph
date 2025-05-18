@@ -200,7 +200,7 @@ def main():
             data = data.to(device)
             optimizer.zero_grad()
             out = model(data)
-            loss = F.nll_loss(out, data.y, weight=class_weights_tensor)
+            loss = F.nll_loss(torch.exp(out), data.y, weight=class_weights_tensor)
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
@@ -223,7 +223,7 @@ def main():
                     data = data.to(device)
                     val_out = model(data)
 
-                    val_loss = F.nll_loss(val_out, data.y, weight=class_weights_tensor)
+                    val_loss = F.nll_loss(torch.exp(val_out), data.y, weight=class_weights_tensor)
                     total_val_loss += val_loss.item()
 
                     pred = val_out.max(1)[1].to(torch.float32)
